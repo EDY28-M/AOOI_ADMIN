@@ -43,12 +43,14 @@ class GoogleAuthController extends Controller
             // 4. Buscamos o creamos al usuario en nuestra base de datos
             // Usamos updateOrCreate para manejar tanto registros nuevos como existentes.
             $user = User::updateOrCreate(
-                ['google_id' => $googleId], // Busca por el ID de Google para ser más robusto
+                ['google_id' => $googleId],
                 [
-                    'email' => $email, // Actualiza el email por si cambia
+                    'email' => $email,
                     'name' => $name,
                     'avatar' => $avatar,
-                    'password' => bcrypt(str()->random(16)) // Asigna una contraseña aleatoria segura
+                    'type_user' => 'CLIENT',
+                    'email_verified_at' => now(),
+                    'password' => bcrypt(str()->random(16))
                 ]
             );
 
