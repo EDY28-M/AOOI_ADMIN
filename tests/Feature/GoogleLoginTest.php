@@ -44,6 +44,7 @@ class GoogleLoginTest extends TestCase
         ]);
 
         $response->assertOk();
+        $this->assertNotEmpty($response->json('access_token'));
 
         $this->assertDatabaseHas('users', [
             'google_id' => 'google123',
@@ -77,6 +78,7 @@ class GoogleLoginTest extends TestCase
         ]);
 
         $response->assertOk();
+        $this->assertNotEmpty($response->json('access_token'));
 
         $this->assertDatabaseCount('users', 1);
 
