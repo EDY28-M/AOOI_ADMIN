@@ -178,16 +178,21 @@ class AuthController extends Controller
 
     public function googleLogin(Request $request)
     {
-        $client = new Google_Client(['client_id' => config('services.google.client_id')]);
+        $client = app(Google_Client::class, [
+            'config' => ['client_id' => config('services.google.client_id')],
+        ]);
         $payload = $client->verifyIdToken($request->credential);
 
         if (!$payload) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        $user = User::firstOrCreate(
-            ['email' => $payload['email']],
+        $googleId = $payload['sub'];
+
+        $user = User::updateOrCreate(
+            ['google_id' => $googleId],
             [
+                'email' => $payload['email'],
                 'name' => $payload['given_name'] ?? $payload['name'] ?? '',
                 'surname' => $payload['family_name'] ?? '',
                 'avatar' => $payload['picture'] ?? null,
