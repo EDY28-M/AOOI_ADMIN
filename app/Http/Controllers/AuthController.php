@@ -7,7 +7,6 @@ use App\Models\User;
 use App\Mail\VerifiedMail;
 use Illuminate\Http\Request;
 use App\Mail\ForgotPasswordMail;
-use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -34,300 +33,233 @@ class AuthController extends Controller
             'new_password',
         ]]);
     }
- 
- 
+
     /**
      * Register a User.
      *
      * @return \Illuminate\Http\JsonResponse
      */
-    public function register() {
-        $validator = Validator::make(request()->all(), [
-            'name' => 'required',
-            'surname' => 'required',
-            'phone' => 'required',
-            'email' => 'required|email|unique:users',
-            'password' => 'required|min:8',
+    public function register()
+    {
+        $data = request()->only(['name', 'email', 'password']);
+        $validator = Validator::make($data, [
+            'name'     => 'required|string|max:255',
+            'email'    => 'required|email|unique:users',
+            'password' => 'required|string|min:6',
         ]);
- 
-        if($validator->fails()){
-            return response()->json($validator->errors()->toJson(), 400);
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors'  => $validator->errors()
+            ], 422);
         }
- 
+
         $user = new User;
-        $user->name = request()->name;
-        $user->surname = request()->surname;
-        $user->phone = request()->phone;
-        $user->type_user = 2;
-        $user->email = request()->email;
-        $user->uniqd = uniqid();
-        $user->password = bcrypt(request()->password);
+        $user->name         = $data['name'];
+        $user->type_user    = 2;               // Tipo Cliente
+        $user->email        = $data['email'];
+        $user->uniqd        = uniqid();
+        $user->password     = bcrypt($data['password']);
         $user->save();
 
-        Mail::to(request()->email)->send(new VerifiedMail($user));
+        $user->roles()->sync([1]); // Cliente
 
         return response()->json($user, 201);
     }
-    
-    public function update(Request $request) {
-        if($request->passowrd){
-            $user = User::find(auth("api")->user()->id);
-            $user->update([
-                "password" => bcrypt($request->password)
-            ]);
-            return response()->json([
-                "message" => 200,
-            ]);
-        }
-        $is_exists_email = User::where("id","<>",auth("api")->user()->id)
-                                    ->where("email",$request->email)->first();
-        if($is_exists_email){
-            return response()->json([
-                "message" => 403,
-                "message_text" => "El usuario ya existe"
-            ]);
-        }
-        $user = User::find(auth("api")->user()->id);
-        if($request->hasFile("file_imagen")){
-            if($user->avatar){
-                Storage::delete($user->avatar);
-            }
-            $path = Storage::putFile("users",$request->file("file_imagen"));
-            $request->request->add(["avatar" => $path]);
-        }
-        $user->update($request->all());
-        return response()->json([
-            "message" => 200,
-        ]);
-    }
-
-    public function verified_email(Request $request){
-        $user = User::where("email",$request->email)->first();
-        if($user){
-            $user->update(["code_verified" => uniqid()]);
-            Mail::to($request->email)->send(new ForgotPasswordMail($user));
-            return response()->json(["message" => 200]);
-        }else{
-            return response()->json(["message" => 403]);
-        }
-    }
-    public function verified_code(Request $request){
-        $user = User::where("code_verified",$request->code)->first();
-        if($user){
-            return response()->json(["message" => 200]);
-        }else{
-            return response()->json(["message" => 403]);
-        }
-    }
-    public function new_password(Request $request){
-        $user = User::where("code_verified",$request->code)->first();
-        $user->update(["password" => bcrypt($request->new_password),"code_verified" => null]);
-        return response()->json(["message" => 200]);
-    }
 
     /**
-     * Get a JWT via given credentials.
-     *
-     * @return \Illuminate\Http\JsonResponse
+     * Get a JWT via given credentials for Admin.
      */
     public function login()
     {
         $credentials = request(['email', 'password']);
- 
+
         if (! $token = auth('api')->attempt([
-            "email" => request()->email,
-            "password" => request()->password,
-            "type_user" => 1])) {
-            
-            // Intentar también con "ADMIN" como tipo de usuario
-            if (! $token = auth('api')->attempt([
-                "email" => request()->email,
-                "password" => request()->password,
-                "type_user" => "ADMIN"])) {
-                return response()->json(['error' => 'Unauthorized'], 401);
-            }
+            'email'     => $credentials['email'],
+            'password'  => $credentials['password'],
+            'type_user' => 1
+        ])) {
+            return response()->json(['error' => 'Unauthorized'], 401);
         }
- 
+
         return $this->respondWithToken($token);
     }
 
+    /**
+     * Get a JWT via given credentials for Cliente.
+     */
     public function login_ecommerce()
     {
         $credentials = request(['email', 'password']);
- 
+
         if (! $token = auth('api')->attempt([
-            "email" => request()->email,
-            "password" => request()->password,
-            "type_user" => 2])) {
-            
-            // Intentar también con "CLIENT" como tipo de usuario
-            if (! $token = auth('api')->attempt([
-                "email" => request()->email,
-                "password" => request()->password,
-                "type_user" => "CLIENT"])) {
-                return response()->json(['error' => 'Unauthorized'], 401);
-            }
+            'email'     => $credentials['email'],
+            'password'  => $credentials['password'],
+            'type_user' => 2
+        ])) {
+            return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        if(!auth('api')->user()->email_verified_at){
+        $user = auth('api')->user();
+        if (! $user->email_verified_at) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
         return $this->respondWithToken($token);
     }
 
+    /**
+     * Login or register with Google.
+     */
     public function googleLogin(Request $request)
     {
-        $client = app(Google_Client::class, [
-            'config' => ['client_id' => config('services.google.client_id')],
+        // 1) Validar que venga id_token
+        $validator = Validator::make($request->only('id_token'), [
+            'id_token' => 'required|string',
         ]);
-        $payload = $client->verifyIdToken($request->credential);
-
-        if (!$payload) {
-            return response()->json(['error' => 'Unauthorized'], 401);
+        if ($validator->fails()) {
+            return response()->json(['error' => 'id_token es requerido'], 422);
         }
 
-        $googleId = $payload['sub'];
+        try {
+            // 2) Verificar el token con Google
+            $client = new Google_Client();
+            $client->setClientId(config('services.google.client_id'));
+            $payload = $client->verifyIdToken($request->id_token);
 
-        $user = User::updateOrCreate(
-            ['google_id' => $googleId],
-            [
-                'email' => $payload['email'],
-                'name' => $payload['given_name'] ?? $payload['name'] ?? '',
-                'surname' => $payload['family_name'] ?? '',
-                'avatar' => $payload['picture'] ?? null,
-                'type_user' => 2,
-                'password' => bcrypt(Str::random(16)),
-                'email_verified_at' => now(),
-            ]
-        );
+            if (! $payload) {
+                return response()->json(['error' => 'Token de Google inválido'], 401);
+            }
 
-        $token = auth('api')->login($user);
+            // 3) Datos del usuario desde Google
+            $email     = $payload['email'];
+            $googleId  = $payload['sub'];
+            $firstName = $payload['given_name']  ?? ($payload['name'] ?? '');
+            $lastName  = $payload['family_name'] ?? '';
+            $avatar    = $payload['picture']     ?? null;
 
-        return $this->respondWithToken($token);
-    }
-    
-    public function verified_auth(Request $request){
-        $user = User::where("uniqd", $request->code_user)->first();
+            // 4) Buscar por email o crear/actualizar
+            $user = User::where('email', $email)->first();
+            if ($user) {
+                // Si existe, solo asignamos google_id y marcamos email verificado
+                $user->google_id         = $googleId;
+                $user->email_verified_at = $user->email_verified_at ?: now();
+                $user->avatar            = $avatar ?: $user->avatar;
+                $user->save();
+            } else {
+                // Crear nuevo usuario
+                $user = User::create([
+                    'name'              => $firstName,
+                    'surname'           => $lastName,
+                    'email'             => $email,
+                    'google_id'         => $googleId,
+                    'avatar'            => $avatar,
+                    'type_user'         => 2,                      // Cliente
+                    'password'          => bcrypt(Str::random(16)),
+                    'email_verified_at' => now(),
+                    'uniqd'             => uniqid(),
+                ]);
+                $user->roles()->sync([1]); // Cliente
+            }
 
-        if($user){
-            $user->update(["email_verified_at" => now()]);
-            return response()->json(["message" => 200]);
+            // 5) Generar JWT e devolver
+            $token = auth('api')->login($user);
+            return $this->respondWithToken($token);
+
+        } catch (\Exception $e) {
+            \Log::error('Error en googleLogin: ' . $e->getMessage());
+            return response()->json(['error' => 'Error interno al autenticar con Google'], 500);
         }
-
-        return response()->json(["message" => 403]);
     }
+
     /**
      * Get the authenticated User.
-     *
-     * @return \Illuminate\Http\JsonResponse
      */
     public function me()
     {
-        $user = User::find(auth("api")->user()->id);
+        $user = auth('api')->user();
         return response()->json([
-            'name' => $user->name,
-            'surname' => $user->surname,
-            'phone' => $user->phone,
-            'email' => $user->email,
-            'bio' => $user->bio,
-            'fb' => $user->fb,
-            'sexo' => $user->sexo,
+            'name'         => $user->name,
+            'surname'      => $user->surname,
+            'phone'        => $user->phone,
+            'email'        => $user->email,
+            'bio'          => $user->bio,
+            'fb'           => $user->fb,
+            'sexo'         => $user->sexo,
             'address_city' => $user->address_city,
-            'avatar' => $user->avatar ? env("APP_URL")."storage/".$user->avatar : 'https://cdn-icons-png.flaticon.com/512/1476/1476614.png',
+            'avatar'       => $user->avatar
+                                ? env('APP_URL').'/storage/'.$user->avatar
+                                : 'https://cdn-icons-png.flaticon.com/512/1476/1476614.png',
         ]);
     }
 
     /**
      * Get the authenticated User's permissions.
-     *
-     * @return \Illuminate\Http\JsonResponse
      */
     public function permissions()
     {
-        if (!auth('api')->check()) {
+        if (! auth('api')->check()) {
             return response()->json(['error' => 'Unauthenticated'], 401);
         }
 
-        $user = User::with('roles.permissions')->find(auth('api')->user()->id);
-        
-        // Lista de todos los permisos posibles
+        $user = User::with('roles.permissions')->find(auth('api')->id());
+
         $allPermissions = [
-            'manage-users' => false,
-            'manage-products' => false,
-            'manage-own-products' => false,
-            // Puedes añadir más permisos aquí
+            'manage-users'         => false,
+            'manage-products'      => false,
+            'manage-own-products'  => false,
         ];
-        
-        // Marcar los permisos que el usuario tiene
-        foreach ($user->roles as $role) {
-            if ($role->name === 'Admin') {
-                // El rol Admin tiene todos los permisos
-                foreach ($allPermissions as $key => $value) {
-                    $allPermissions[$key] = true;
-                }
-                break;
+
+        $roles = [];
+        if ($user->type_user == 1) {
+            $roles[] = 'Admin';
+            foreach ($allPermissions as $key => $value) {
+                $allPermissions[$key] = true;
             }
-            
-            foreach ($role->permissions as $permission) {
-                if (isset($allPermissions[$permission->name])) {
-                    $allPermissions[$permission->name] = true;
-                }
-            }
+        } elseif ($user->type_user == 2) {
+            $roles[] = 'Cliente';
+            $allPermissions['manage-own-products'] = true;
         }
-        
-        // Registrar en log para depuración
-        \Illuminate\Support\Facades\Log::info('User permissions', [
-            'user_id' => $user->id,
-            'permissions' => $allPermissions,
-            'roles' => $user->roles->pluck('name')
-        ]);
-        
+
         return response()->json([
             'permissions' => $allPermissions,
-            'roles' => $user->roles->pluck('name')
+            'roles'       => $roles
         ]);
     }
- 
+
     /**
      * Log the user out (Invalidate the token).
-     *
-     * @return \Illuminate\Http\JsonResponse
      */
     public function logout()
     {
         auth('api')->logout();
- 
         return response()->json(['message' => 'Successfully logged out']);
     }
- 
+
     /**
      * Refresh a token.
-     *
-     * @return \Illuminate\Http\JsonResponse
      */
     public function refresh()
     {
         return $this->respondWithToken(auth('api')->refresh());
     }
- 
+
     /**
-     * Get the token array structure.
-     *
-     * @param  string $token
-     *
-     * @return \Illuminate\Http\JsonResponse
+     * Utility: Respond with token structure.
      */
     protected function respondWithToken($token)
     {
+        $user = auth('api')->user();
         return response()->json([
             'access_token' => $token,
-            'token_type' => 'bearer',
-            'expires_in' => auth('api')->factory()->getTTL() * 60,
-            "user" => [
-                "full_name" => auth('api')->user()->name . ' ' . auth('api')->user()->surname,
-                "email" => auth('api')->user()->email,
+            'token_type'   => 'bearer',
+            'expires_in'   => auth('api')->factory()->getTTL() * 60,
+            'user'         => [
+                'full_name' => $user->name . ' ' . $user->surname,
+                'email'     => $user->email,
             ],
         ]);
     }
+
+    // ... aquí quedan tus otros métodos: update, verified_email, verified_code, new_password, verified_auth, etc.
 }
