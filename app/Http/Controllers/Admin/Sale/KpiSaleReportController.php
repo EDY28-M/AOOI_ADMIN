@@ -32,7 +32,7 @@ class KpiSaleReportController extends Controller
                 "month" => date("m"),
                 "meses" => $months_name,
                 "limited_access" => true,
-                "message" => "Acceso limitado. Solo puedes ver estadísticas de tus productos."
+                "message" => "Tienes permisos Limitados para crear tus anuncios, puedes crear solo tres."
             ]);
         }
         
