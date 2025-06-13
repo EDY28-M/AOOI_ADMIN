@@ -56,11 +56,11 @@ class AuthController extends Controller
         }
 
         $user = new User;
-        $user->name         = $data['name'];
-        $user->type_user    = 1;               // Tipo ADMIN (para poder hacer login)
-        $user->email        = $data['email'];
-        $user->uniqd        = uniqid();
-        $user->password     = bcrypt($data['password']);
+        $user->name      = $data['name'];
+        $user->type_user   = 1; // Tipo ADMIN (para poder hacer login)
+        $user->email       = $data['email'];
+        $user->uniqd       = uniqid();
+        $user->password    = bcrypt($data['password']);
         $user->save();
 
         $user->roles()->sync([2]); // Rol Usuario (permisos básicos)
@@ -68,8 +68,21 @@ class AuthController extends Controller
         // Envío de correo comentado temporalmente para pruebas
         // Mail::to($data['email'])->send(new VerifiedMail($user));
 
-        return response()->json($user, 201);
+        // --- INICIO DE LA CORRECCIÓN ---
+        // Después de crear el usuario, intentamos autenticarlo para generar el token.
+        $credentials = request(['email', 'password']);
+        if (! $token = auth('api')->attempt($credentials)) {
+            // Esto no debería fallar si el usuario se acaba de crear,
+            // pero es una buena práctica manejar el caso.
+            return response()->json(['error' => 'Could not create token'], 500);
+        }
+
+        // Usamos el método que ya tienes para devolver la respuesta correcta.
+        return $this->respondWithToken($token);
+        // --- FIN DE LA CORRECCIÓN ---
     }
+    
+    // ... RESTO DEL CONTROLADOR (SIN CAMBIOS) ...
 
     /**
      * Get a JWT via given credentials for Admin.
@@ -153,15 +166,15 @@ class AuthController extends Controller
             } else {
                 // Crear nuevo usuario
                 $user = User::create([
-                    'name'              => $firstName,
-                    'surname'           => $lastName,
-                    'email'             => $email,
-                    'google_id'         => $googleId,
-                    'avatar'            => $avatar,
-                    'type_user'         => 1,                      // ADMIN (para panel administrativo)
-                    'password'          => bcrypt(Str::random(16)),
+                    'name'                => $firstName,
+                    'surname'             => $lastName,
+                    'email'               => $email,
+                    'google_id'           => $googleId,
+                    'avatar'              => $avatar,
+                    'type_user'           => 1,                       // ADMIN (para panel administrativo)
+                    'password'            => bcrypt(Str::random(16)),
                     'email_verified_at' => now(),
-                    'uniqd'             => uniqid(),
+                    'uniqd'               => uniqid(),
                 ]);
                 $user->roles()->sync([2]); // Rol Usuario (permisos básicos)
             }
@@ -192,8 +205,8 @@ class AuthController extends Controller
             'sexo'         => $user->sexo,
             'address_city' => $user->address_city,
             'avatar'       => $user->avatar
-                                ? env('APP_URL').'/storage/'.$user->avatar
-                                : 'https://cdn-icons-png.flaticon.com/512/1476/1476614.png',
+                                  ? env('APP_URL').'/storage/'.$user->avatar
+                                  : 'https://cdn-icons-png.flaticon.com/512/1476/1476614.png',
         ]);
     }
 
@@ -209,9 +222,9 @@ class AuthController extends Controller
         $user = User::with('roles.permissions')->find(auth('api')->id());
 
         $allPermissions = [
-            'manage-users'         => false,
-            'manage-products'      => false,
-            'manage-own-products'  => false,
+            'manage-users'        => false,
+            'manage-products'       => false,
+            'manage-own-products' => false,
         ];
 
         $roles = [];
@@ -333,7 +346,7 @@ class AuthController extends Controller
         }
         
         $is_exists_email = User::where("id","<>",auth("api")->user()->id)
-                                    ->where("email",$request->email)->first();
+                                         ->where("email",$request->email)->first();
         if($is_exists_email){
             return response()->json([
                 "message" => 403,
