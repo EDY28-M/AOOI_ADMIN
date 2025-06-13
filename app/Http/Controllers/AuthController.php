@@ -31,6 +31,7 @@ class AuthController extends Controller
             'verified_email',
             'verified_code',
             'new_password',
+            'password_confirmation',
         ]]);
     }
 
